@@ -1,0 +1,134 @@
+---
+ - hosts: "{{host}}" 
+   user: acsapp
+   vars:
+   - var1: baseDir
+   - var2: logBaseDir
+   - var3: clusterName
+   - var4: project
+   - var5: release
+   - var6: version
+   - var7: host
+
+   tasks:
+   - name : creating artifactory directory
+     shell: ARTIFACT_PATH="/{{baseDir}}/acs2/acs2-cluster-{{clusterName}}/{{project}}/artifacts/"; if [ -d $ARTIFACT_PATH ]; then echo "$ARTIFACT_PATH is present" ; else mkdir -vp $ARTIFACT_PATH; fi
+     register: artifact
+   
+   - name: checking out
+     debug: var=artifact.stdout_lines
+
+   - name: creating live environment
+     shell: LIVE_PATH="/{{baseDir}}/acs2/acs2-cluster-{{clusterName}}/{{project}}/{{release}}/" ; if [ -d $LIVE_PATH ]; then echo "$LIVE_PATH is present" ; else mkdir -vp $LIVE_PATH ; fi
+     register: live
+
+   - name: checking out
+     debug: var=live.stdout_lines
+    
+
+   - name: finding files
+     command: echo "/{{baseDir}}/acs2/acs2-cluster-{{clusterName}}/{{project}}/{{release}}/"
+     register: LIVE_PATH
+
+#   - name: checking out
+#     debug: var=LIVE_PATH.stdout_lines
+   
+   - name: creating live logs directory
+     shell: LOGS_PATH="/{{logBaseDir}}/acs2/acs2-cluster-{{clusterName}}/{{project}}/{{release}}/" ; if [ -d $LOGS_PATH ]; then echo "$LOGS_PATH is present" ; else mkdir -vp $LOGS_PATH ; fi
+     register: logLive
+
+   - name: checking out
+     debug: var=logLive.stdout_lines
+
+   - name : Check project directory  is available are not
+     shell: PROJECTDIR="{{baseDir}}/acs2/acs2-cluster-{{clusterName}}/{{project}}/artifacts/{{project}}-{{version}}/" ; if [ -e $PROJECTDIR ]; then echo "its ok" ; else echo "not ok" ; fi
+     register: project_result
+  
+   - name: checking out
+     debug: var=project_result.stdout
+
+   - name : delect old projct symlinx from application
+     shell: cd "{{ LIVE_PATH.stdout }}" ; find . -type l -exec unlink {} \; 
+     when: project_result.stdout== "not ok"
+   
+
+   - name : get the files for build env to artifacts
+     copy: src="{{item}}" dest=/{{baseDir}}/acs2/acs2-cluster-{{clusterName}}/{{project}}/artifacts/
+     with_fileglob:
+      - /appserver/jenkins-workspace/accosa2/{{project}}/build/distributions/{{project}}-{{version}}.zip   
+ 
+   - name : unzip the file
+     shell: cd "{{ LIVE_PATH.stdout }}" ; unzip {{project}}-{{version}}.zip ; sleep 3 ; rm -f {{project}}-{{version}}.zip # change the hardcoded version
+     register: rm
+
+   - name: checking out
+     debug: var=rm.stdout_lines     
+ 
+   - name : Check in the appserver jar file  is available are not
+     shell: JAR_PATH="/{{baseDir}}/acs2/acs2-cluster-{{clusterName}}/{{project}}/artifacts/{{project}}-{{version}}/*.jar" ; if [ -e $JAR_PATH ]; then echo "its ok" ; else echo "not ok" ; fi
+     register: jar_result
+
+   - name: checking out
+     debug: var=jar_result.stdout_lines
+
+
+   - name: Creating symlink for jar
+     shell: cd "{{ LIVE_PATH.stdout }}" ; nohup ln -vs ../artifacts/{{project}}-{{version}}/*.jar  {{project}}.jar &
+     register: jarsymlinx
+     when: jar_result.stdout== "its ok"    
+
+   - name: checking out
+     debug: var=jarsymlinx.stdout_lines
+   
+
+   - name: Creating symlink for config
+     shell: cd "{{ LIVE_PATH.stdout }}" ; nohup ln -vs ../artifacts/{{project}}-{{version}}/config & 
+     register: configsymlink
+     when: jar_result.stdout== "its ok"
+  
+   - name: checking out
+     debug: var=configsymlink.stdout_lines
+
+   - name: Creating symlink for logs
+     shell: cd "{{ LIVE_PATH.stdout }}" ; nohup ln -vs /{{logBaseDir}}/acs2/acs2-cluster-{{clusterName}}/{{project}}/{{release}}/ logs &
+     register: logsymlinx
+     when: jar_result.stdout== "its ok"
+  
+   - name: checking out
+     debug: var=logsymlinx.stdout_lines
+
+   - name : Storing shfile 
+     shell: cd "{{ LIVE_PATH.stdout }}" ; ls *.sh
+     register: shfile
+
+   - name: result
+     debug: var=shfile.stdout
+
+
+   - name: stop the application
+     shell: cd "{{ LIVE_PATH.stdout }}"  ; nohup ./{{shfile.stdout}} stop &
+     register: stopjar
+ 
+   - name: result
+     debug: var=stopjar.stdout
+
+   - name: check the status
+     shell: cd "{{ LIVE_PATH.stdout }}" ; nohup ./{{shfile.stdout}} status &
+     register: statusjar
+
+   - name: result
+     debug: var=statusjar.stdout
+
+   - name: Start the up application
+     shell: cd "{{ LIVE_PATH.stdout }}"  ; nohup ./{{shfile.stdout}} start &
+     register: startjar
+
+   - name: result
+     debug: var=startjar.stdout  
+
+   - name: check the final status
+     shell: cd "{{ LIVE_PATH.stdout }}" ; nohup ./{{shfile.stdout}} status &
+     register: final_status
+
+   - name: result
+     debug: var=final_status.stdout
